@@ -2,15 +2,22 @@
 
 from __future__ import annotations
 
+import os
 from datetime import datetime
+from pathlib import Path
 
 import requests
 from flask import Flask, render_template, request
 
+from .notices_views import bp as notices_bp
 from .scraper import find_station_url, scrape_station_timetable
 from .times import SERVICE_LABELS, determine_last_trip
 
 app = Flask(__name__)
+app.config["NOTICE_DB_PATH"] = os.environ.get(
+    "NOTICE_DB_PATH", str(Path(__file__).resolve().parents[1] / "data" / "notices.sqlite3")
+)
+app.register_blueprint(notices_bp)
 
 
 def _parse_local_dt(raw: str, field_label: str) -> datetime:

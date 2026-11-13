@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>停运公告查询 · 夜班接驳车</title>
+  <style>
+    :root { --ink:#1f2933; --muted:#667085; --brand:#1d4ed8; --ok-bg:#ecfdf3;
+            --ok-bd:#12b76a; --warn-bg:#fffaeb; --warn-bd:#f79009;
+            --err-bg:#fef3f2; --err-bd:#f04438; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: "PingFang SC","Microsoft YaHei","Noto Sans CJK SC",
+           system-ui, sans-serif; color:var(--ink); background:#f5f7fb; }
+    header { background:var(--brand); color:#fff; padding:20px 28px; }
+    header h1 { margin:0; font-size:20px; }
+    header p { margin:6px 0 0; font-size:13px; opacity:.85; }
+    header nav { margin-top:10px; font-size:13px; }
+    header nav a { color:#dbe7ff; margin-right:16px; }
+    main { max-width:1040px; margin:24px auto; padding:0 16px; }
+    .card { background:#fff; border:1px solid #e4e7ec; border-radius:10px;
+            padding:20px 24px; margin-bottom:20px; }
+    .grid { display:grid; grid-template-columns:2fr 1fr; gap:14px 18px; }
+    label { display:block; font-size:13px; font-weight:600; margin-bottom:6px; }
+    input { width:100%; padding:9px 10px; border:1px solid #d0d5dd; border-radius:8px;
+            font-size:14px; }
+    input:focus { outline:2px solid #b2ccff; border-color:var(--brand); }
+    button { margin-top:16px; background:var(--brand); color:#fff; border:0;
+             padding:10px 26px; border-radius:8px; font-size:15px; cursor:pointer; }
+    button:hover { background:#1e40af; }
+    .banner { border-radius:8px; padding:12px 16px; margin-bottom:16px; font-size:14px;
+              border:1px solid; }
+    .banner.err { background:var(--err-bg); border-color:var(--err-bd); }
+    .banner.warn { background:var(--warn-bg); border-color:var(--warn-bd); }
+    .banner.ok { background:var(--ok-bg); border-color:var(--ok-bd); }
+    .banner ul { margin:6px 0 0 18px; padding:0; }
+    table { width:100%; border-collapse:collapse; font-size:13px; margin-top:8px; }
+    th, td { border:1px solid #e4e7ec; padding:7px 9px; text-align:left; vertical-align:top; }
+    th { background:#f9fafb; }
+    code { background:#f2f4f7; padding:1px 6px; border-radius:4px; font-size:12px; }
+    .muted { color:var(--muted); font-size:12px; }
+    h2 { font-size:16px; margin:18px 0 10px; }
+    a { color:var(--brand); word-break:break-all; }
+    .tag { display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; }
+    .tag.ok { background:var(--ok-bg); color:#027a48; border:1px solid var(--ok-bd); }
+    .tag.err { background:var(--err-bg); color:#b42318; border:1px solid var(--err-bd); }
+    .tag.warn { background:var(--warn-bg); color:#b54708; border:1px solid var(--warn-bd); }
+  </style>
+</head>
+<body>
+<header>
+  <h1>停运公告查询</h1>
+  <p>填写运营方公告首页 URL 与服务日期，自动翻页抓取全部停运公告，列出当日停运车次及公告依据。</p>
+  <nav>
+    <a href="{{ url_for('index') }}">← 末班核定</a>
+    <a href="{{ url_for('notices.query') }}">停运公告查询</a>
+  </nav>
+</header>
+<main>
+  {% if errors %}
+  <div class="banner err">
+    <strong>⚠ 本次公告抓取不完整</strong>
+    <ul>{% for e in errors %}<li>{{ e }}</li>{% endfor %}</ul>
+    {% if batch %}
+    <p style="margin:8px 0 0">以下结果仍为<strong>上一次完整批次</strong>的旧公告，本次部分新公告未混入。</p>
+    {% else %}
+    <p style="margin:8px 0 0">该来源<strong>从未成功采集过完整公告</strong>，不能据此判断当日无停运，请稍后重试或联系调度。</p>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% if warnings %}
+  <div class="banner warn">
+    <strong>数据告警</strong>
+    <ul>{% for w in warnings %}<li>{{ w }}</li>{% endfor %}</ul>
+  </div>
+  {% endif %}
+
+  <div class="card">
+    <form method="post" novalidate>
+      <div class="grid">
+        <div>
+          <label for="home_url">公告首页 URL</label>
+          <input id="home_url" name="home_url" type="url" required
+                 placeholder="例如 http://example-site:5001/notices/" value="{{ form.home_url }}">
+        </div>
+        <div>
+          <label for="service_date">服务日期</label>
+          <input id="service_date" name="service_date" type="date" required
+                 value="{{ form.service_date }}">
+        </div>
+      </div>
+      <button type="submit">抓取并查询停运车次</button>
+      <p class="muted">只有全部公告分页取齐后才会替换该来源的旧批次；任一页失败则保留上次完整批次并标明失败页。</p>
+    </form>
+  </div>
+
+  {% if failure %}
+  <div class="card">
+    <h2 style="margin-top:0">最近一次失败采集记录
+      <span class="tag err">失败</span></h2>
+    <table>
+      <tr><th>采集时间</th><td>{{ failure.fetched_at }}</td></tr>
+      <tr><th>失败分页地址</th><td>
+        {% if failure.failed_page_url %}<a href="{{ failure.failed_page_url }}" target="_blank">{{ failure.failed_page_url }}</a>{% else %}—{% endif %}
+      </td></tr>
+      <tr><th>错误信息</th><td style="white-space:pre-wrap">{{ failure.error_text }}</td></tr>
+    </table>
+  </div>
+  {% endif %}
+
+  {% if batch %}
+  <div class="card">
+    <h2 style="margin-top:0">当前依据的公告批次
+      <span class="tag ok">完整批次</span>
+      {% if fresh_success %}<span class="tag ok">本次新采集</span>{% endif %}
+    </h2>
+    <table>
+      <tr><th>来源（公告首页）</th><td>{{ batch.source_url }}</td></tr>
+      <tr><th>采集时间</th><td>{{ batch.fetched_at }}</td></tr>
+      <tr><th>完整分页数</th><td>{{ batch.page_count }}</td></tr>
+      <tr><th>公告条数</th><td>{{ batch.notice_count }}</td></tr>
+    </table>
+
+    {% if service_day %}
+    <h2>服务日 {{ service_day.strftime('%Y-%m-%d') }} 停运车次（共 {{ effective|length }} 条依据）</h2>
+    {% if effective %}
+    <table>
+      <tr><th>公告编号</th><th>停运车次号</th><th>生效起始</th><th>生效截止</th><th>原页地址</th></tr>
+      {% for n in effective %}
+      <tr>
+        <td>{{ n.notice_no }}</td>
+        <td><strong>{{ n.trip_no }}</strong></td>
+        <td>{{ n.start_date.strftime('%Y-%m-%d') if n.start_date else n.raw_start or '—' }}</td>
+        <td>{{ n.end_date.strftime('%Y-%m-%d') if n.end_date else n.raw_end or '—' }}</td>
+        <td><a href="{{ n.page_url }}" target="_blank">{{ n.page_url }}</a></td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% elif not errors %}
+    <div class="banner ok">
+      依据上述完整批次（采集于 {{ batch.fetched_at }}），服务日
+      <strong>{{ service_day.strftime('%Y-%m-%d') }}</strong>
+      没有生效中的停运公告，可按计划班次上报。
+    </div>
+    {% else %}
+    <p class="muted">因本次抓取失败，不在旧批次上额外给出“当日无停运”结论；下表为旧批次中当日仍生效的公告供核对。</p>
+    {% endif %}
+    {% endif %}{# /if service_day #}
+
+    {% if unconfirmed %}
+    <h2>生效日期无法解析、需人工核对的公告（{{ unconfirmed|length }} 条）</h2>
+    <table>
+      <tr><th>公告编号</th><th>车次号</th><th>原始起始文本</th><th>原始截止文本</th><th>原页地址</th></tr>
+      {% for n in unconfirmed %}
+      <tr>
+        <td>{{ n.notice_no }}</td>
+        <td>{{ n.trip_no }}</td>
+        <td><code>{{ n.raw_start or '—' }}</code></td>
+        <td><code>{{ n.raw_end or '—' }}</code></td>
+        <td><a href="{{ n.page_url }}" target="_blank">{{ n.page_url }}</a></td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% endif %}
+
+    <h2>本批次全部公告（{{ batch.notice_count }} 条）</h2>
+    <table>
+      <tr><th>公告编号</th><th>车次号</th><th>生效起始</th><th>生效截止</th><th>原页地址</th></tr>
+      {% for n in all_notices %}
+      <tr>
+        <td>{{ n.notice_no }}</td>
+        <td>{{ n.trip_no }}</td>
+        <td>{{ n.start_date.strftime('%Y-%m-%d') if n.start_date else n.raw_start or '—' }}</td>
+        <td>{{ n.end_date.strftime('%Y-%m-%d') if n.end_date else n.raw_end or '—' }}</td>
+        <td><a href="{{ n.page_url }}" target="_blank">{{ n.page_url }}</a></td>
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
+  {% elif request.method == 'POST' and errors %}
+  <!-- 无完整批次且本次失败：错误横幅已说明不能断言当日无停运 -->
+  {% endif %}
+
+  <p class="muted">页面生成时间：{{ now }}</p>
+</main>
+</body>
+</html>

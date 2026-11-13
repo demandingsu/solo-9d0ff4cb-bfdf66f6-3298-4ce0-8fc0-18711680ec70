@@ -14,5 +14,13 @@ services:
     container_name: shuttle-commuter
     ports:
       - "8000:5000"
+    environment:
+      # 停运公告批次数据库（挂载到命名卷，重启后已采集批次不丢失）
+      NOTICE_DB_PATH: /srv/app/data/notices.sqlite3
+    volumes:
+      - notice-data:/srv/app/data
     depends_on:
       - example-site
+
+volumes:
+  notice-data:
